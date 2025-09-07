@@ -22,7 +22,7 @@ cd AcademiaVeritas
 The application will be available at:
 - **Frontend**: http://localhost:8080
 - **Backend API**: http://localhost:5001
-- **Database**: localhost:5432
+- **MySQL Database**: localhost:3306
 
 ## 📁 Project Structure
 

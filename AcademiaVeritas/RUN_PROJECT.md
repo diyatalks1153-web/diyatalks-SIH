@@ -24,7 +24,14 @@ Since Docker is not installed, we'll run the project manually. Here's the step-b
 2. **Create environment file:**
    Create a file named `.env` in the backend directory with this content:
    ```env
-   DATABASE_URL=postgresql://admin:admin@localhost:5432/academia_veritas
+   # Database configuration (MySQL)
+   DB_HOST=localhost
+   DB_PORT=3306
+   DB_NAME=academia_veritas
+   DB_USER=admin
+   DB_PASSWORD=admin
+   
+   # Application configuration
    SECRET_KEY=academia-veritas-secret-key-2024
    INFURA_API_KEY=demo-key
    CONTRACT_ADDRESS=demo-address
@@ -43,10 +50,11 @@ Since Docker is not installed, we'll run the project manually. Here's the step-b
    pip install -r requirements.txt
    ```
 
-4. **Set up PostgreSQL database:**
-   - Install PostgreSQL if not already installed
+4. **Set up MySQL database:**
+   - Install MySQL Server 8.0 or later if not already installed
    - Create database: `academia_veritas`
    - Create user: `admin` with password: `admin`
+   - Or run the automated setup: `python setup_database.py`
 
 5. **Run the backend:**
    ```bash
@@ -146,9 +154,10 @@ If you want to install Docker later, here's how to use it:
 ### Common Issues
 
 1. **Database Connection Error**
-   - Ensure PostgreSQL is running
+   - Ensure MySQL Server is running
    - Check database credentials in .env
    - Verify database exists
+   - Test connection: `python setup_database.py`
 
 2. **Port Already in Use**
    - Change ports in configuration
@@ -177,7 +186,7 @@ pip list
 npm list
 
 # Check database connection
-psql -U admin -d academia_veritas -h localhost
+mysql -u admin -padmin -h localhost academia_veritas
 ```
 
 ---

@@ -18,8 +18,12 @@ class Config:
     # Security
     SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
     
-    # Database
-    DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://user:password@localhost:5432/academia_veritas')
+    # Database (MySQL)
+    DB_HOST = os.getenv('DB_HOST', 'localhost')
+    DB_PORT = os.getenv('DB_PORT', '3306')
+    DB_NAME = os.getenv('DB_NAME', 'academia_veritas')
+    DB_USER = os.getenv('DB_USER', 'admin')
+    DB_PASSWORD = os.getenv('DB_PASSWORD', 'admin')
     
     # Blockchain
     INFURA_API_KEY = os.getenv('INFURA_API_KEY', '')
@@ -56,7 +60,7 @@ class TestingConfig(Config):
     """Testing configuration."""
     DEBUG = True
     TESTING = True
-    DATABASE_URL = os.getenv('TEST_DATABASE_URL', 'postgresql://user:password@localhost:5432/academia_veritas_test')
+    DB_NAME = os.getenv('TEST_DB_NAME', 'academia_veritas_test')
 
 
 # Configuration dictionary
