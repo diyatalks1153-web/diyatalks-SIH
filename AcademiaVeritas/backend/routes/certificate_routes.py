@@ -341,15 +341,9 @@ def verify_certificate(user_id, user_type):
                     "error": f"Could not extract required information: {', '.join(missing_fields)}. Please ensure the certificate is clear and readable."
                 }), 400
             
-            # Generate certificate hash for verification
-            certificate_hash = generate_certificate_hash(
-                validated_details['student_name'],
-                validated_details['roll_number'],
-                validated_details['course_name'],
-                validated_details['issue_date']
-            )
+            # Try to find certificate using multiple approaches
+            # since we now have enhanced security hash format
             
-            # Query database for matching certificate
             connection = get_db_connection()
             if not connection:
                 return jsonify({
@@ -358,53 +352,134 @@ def verify_certificate(user_id, user_type):
             
             try:
                 cursor = connection.cursor()
+                certificate_record = None
                 
-                # Search for certificate in database
+                # Approach 1: Search by basic certificate data (name, roll, course, date)
+                # This handles certificates regardless of hash format
                 cursor.execute(
                     """SELECT c.*, i.name as institution_name 
                        FROM certificates c 
                        JOIN institutions i ON c.institution_id = i.id 
-                       WHERE c.certificate_hash = %s""",
-                    (certificate_hash,)
+                       WHERE LOWER(c.student_name) = LOWER(%s) 
+                       AND LOWER(c.roll_number) = LOWER(%s)
+                       AND LOWER(c.course_name) = LOWER(%s)
+                       AND c.issue_date = %s""",
+                    (
+                        validated_details['student_name'].strip(),
+                        validated_details['roll_number'].strip(), 
+                        validated_details['course_name'].strip(),
+                        validated_details['issue_date']
+                    )
                 )
                 
                 certificate_record = cursor.fetchone()
                 
                 if certificate_record:
-                    # Certificate found in database - now perform two-factor verification
-                    certificate_hash = certificate_record[7]  # certificate_hash from database
+                    # Certificate found in database - perform comprehensive verification
                     
-                    # Factor 1: Database verification (already confirmed)
-                    # Factor 2: Blockchain verification
-                    blockchain_verified = verify_hash(certificate_hash)
+                    # Extract data from database record (adjusted for new schema)
+                    cert_id = certificate_record[0]
+                    institution_id = certificate_record[1]
+                    student_name = certificate_record[2]
+                    roll_number = certificate_record[3] 
+                    course_name = certificate_record[4]
+                    grade = certificate_record[5]
+                    issue_date = certificate_record[6]
+                    certificate_hash = certificate_record[7]
+                    blockchain_tx_hash = certificate_record[8]
+                    created_at = certificate_record[9]
+                    updated_at = certificate_record[10]
+                    # New security columns (may be None for older certificates)
+                    certificate_signature = certificate_record[11] if len(certificate_record) > 11 else None
+                    salt = certificate_record[12] if len(certificate_record) > 12 else None
+                    institution_name = certificate_record[13] if len(certificate_record) > 13 else certificate_record[-1]
+                    
+                    # Perform multi-factor verification
+                    blockchain_verified = False
+                    signature_verified = False
+                    
+                    try:
+                        # Factor 1: Database verification (already confirmed)
+                        # Factor 2: Blockchain verification 
+                        if blockchain_tx_hash:
+                            blockchain_verified = verify_hash(certificate_hash)
+                        
+                        # Factor 3: Digital signature verification (if available)
+                        if certificate_signature:
+                            from utils.hashing import verify_certificate_signature
+                            signature_verified = verify_certificate_signature(certificate_hash, certificate_signature)
+                    except Exception as e:
+                        print(f"Verification check error: {e}")
                     
                     result_data = {
-                        "student_name": certificate_record[2],
-                        "roll_number": certificate_record[3],
-                        "course_name": certificate_record[4],
-                        "grade": certificate_record[5],
-                        "issue_date": certificate_record[6].isoformat() if certificate_record[6] else None,
-                        "institution_name": certificate_record[9],  # institution name
-                        "certificate_hash": certificate_record[7],
-                        "blockchain_tx_hash": certificate_record[8]
+                        "student_name": student_name,
+                        "roll_number": roll_number,
+                        "course_name": course_name,
+                        "grade": grade,
+                        "issue_date": issue_date.isoformat() if issue_date else None,
+                        "institution_name": institution_name,
+                        "certificate_hash": certificate_hash[:16] + "...",  # Truncate for display
+                        "blockchain_tx_hash": blockchain_tx_hash[:16] + "..." if blockchain_tx_hash else None,
+                        "verification_factors": {
+                            "database_verified": True,
+                            "blockchain_verified": blockchain_verified,
+                            "signature_verified": signature_verified,
+                            "enhanced_security": bool(certificate_signature)
+                        }
                     }
                     
-                    # Determine verification status based on two-factor check
-                    if blockchain_verified:
-                        result_data["status"] = "VERIFIED_ON_CHAIN"
-                        result_data["verification_message"] = "Certificate verified on both database and blockchain"
-                        result_data["blockchain_verified"] = True
+                    # Determine verification status based on comprehensive checks
+                    total_factors = 1  # Database always verified if we reach here
+                    verified_factors = 1  # Database verification
+                    
+                    if blockchain_tx_hash:
+                        total_factors += 1
+                        if blockchain_verified:
+                            verified_factors += 1
+                    
+                    if certificate_signature:
+                        total_factors += 1
+                        if signature_verified:
+                            verified_factors += 1
+                    
+                    # Determine status based on verification factors
+                    if verified_factors == total_factors and total_factors >= 2:
+                        result_data["status"] = "FULLY_VERIFIED"
+                        result_data["verification_message"] = f"Certificate fully verified ({verified_factors}/{total_factors} factors)"
+                        result_data["confidence_level"] = "HIGH"
+                    elif verified_factors >= 2:
+                        result_data["status"] = "PARTIALLY_VERIFIED"
+                        result_data["verification_message"] = f"Certificate verified ({verified_factors}/{total_factors} factors)"
+                        result_data["confidence_level"] = "MEDIUM"
                     else:
-                        result_data["status"] = "RECORD_FOUND_BUT_NOT_ON_CHAIN"
-                        result_data["verification_message"] = "Certificate found in database but not verified on blockchain"
-                        result_data["blockchain_verified"] = False
-                        result_data["warning"] = "This certificate may not be fully verified. Please contact the issuing institution."
+                        result_data["status"] = "BASIC_VERIFICATION"
+                        result_data["verification_message"] = "Certificate found in database only"
+                        result_data["confidence_level"] = "LOW"
+                        result_data["warning"] = "Limited verification - consider additional authentication"
                     
                     return jsonify(result_data), 200
                 else:
                     # Certificate not found in database
+                    # Provide helpful information for troubleshooting
+                    search_info = {
+                        "searched_for": {
+                            "student_name": validated_details.get('student_name', 'Not detected'),
+                            "roll_number": validated_details.get('roll_number', 'Not detected'),
+                            "course_name": validated_details.get('course_name', 'Not detected'),
+                            "issue_date": validated_details.get('issue_date', 'Not detected')
+                        }
+                    }
+                    
                     return jsonify({
-                        "error": "Certificate not found in our database. This certificate may not be issued by a registered institution or may be fraudulent."
+                        "error": "Certificate not found in our database",
+                        "details": "This certificate may not be issued by a registered institution, may be fraudulent, or the OCR extraction may have failed to read the certificate correctly.",
+                        "extracted_data": search_info,
+                        "suggestions": [
+                            "Verify the certificate details are clearly visible",
+                            "Ensure the certificate is from a registered institution",
+                            "Check if the institution has added this certificate to the system",
+                            "For real OCR accuracy, install Tesseract OCR"
+                        ]
                     }), 404
                     
             except Exception as e:
