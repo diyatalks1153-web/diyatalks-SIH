@@ -177,10 +177,15 @@ def add_certificate(user_id, user_type):
                 "error": "Invalid date format. Please use YYYY-MM-DD format."
             }), 400
         
-        # Generate certificate hash for data integrity
-        certificate_hash = generate_certificate_hash(
-            student_name, roll_number, course_name, issue_date
+        # Generate secure certificate hash with enhanced cryptography
+        from utils.hashing import generate_secure_certificate_hash, generate_certificate_signature
+        
+        certificate_hash, salt = generate_secure_certificate_hash(
+            student_name, roll_number, course_name, issue_date, str(user_id)
         )
+        
+        # Generate digital signature for the certificate
+        certificate_signature = generate_certificate_signature(certificate_hash)
         
         # Get database connection
         connection = get_db_connection()
@@ -208,21 +213,28 @@ def add_certificate(user_id, user_type):
             
             blockchain_tx_hash = add_hash(certificate_hash)
             
-            # Insert new certificate into database
+            # Insert new certificate into database with enhanced security
             cursor.execute(
                 """INSERT INTO certificates 
-                   (institution_id, student_name, roll_number, course_name, grade, issue_date, certificate_hash, blockchain_tx_hash) 
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
-                (user_id, student_name, roll_number, course_name, grade, issue_date, certificate_hash, blockchain_tx_hash)
+                   (institution_id, student_name, roll_number, course_name, grade, issue_date, certificate_hash, blockchain_tx_hash, certificate_signature, salt) 
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                (user_id, student_name, roll_number, course_name, grade, issue_date, certificate_hash, blockchain_tx_hash, certificate_signature, salt)
             )
             
             # Commit the transaction
             connection.commit()
             
             response_data = {
-                "message": "Certificate added successfully",
+                "message": "Certificate added successfully with enhanced security",
                 "certificate_hash": certificate_hash,
-                "blockchain_tx_hash": blockchain_tx_hash
+                "blockchain_tx_hash": blockchain_tx_hash,
+                "certificate_signature": certificate_signature[:20] + "...",  # Show partial signature for confirmation
+                "security_features": {
+                    "cryptographic_signature": "Applied",
+                    "blockchain_storage": "Completed" if blockchain_tx_hash else "Failed",
+                    "hash_algorithm": "HMAC-SHA256 with salt",
+                    "temporal_uniqueness": "Enabled"
+                }
             }
             
             if not blockchain_tx_hash:
@@ -422,6 +434,112 @@ def verify_certificate(user_id, user_type):
         print(f"Unexpected error during certificate verification: {e}")
         return jsonify({
             "error": "An unexpected error occurred"
+        }), 500
+
+
+@cert_bp.route('/api/certificate/extract', methods=['POST'])
+@token_required(allowed_user_types=['institution'])
+def extract_certificate_data(user_id, user_type):
+    """
+    Extract certificate data from uploaded image/PDF for institution use.
+    
+    This endpoint allows institutions to upload a certificate file and extract
+    structured data using OCR. It's used for the drag-and-drop functionality.
+    
+    Expected Input:
+        Multipart form data with:
+        - file: Certificate image or PDF
+        - extract_only: Flag to only extract data (optional)
+        
+    Returns:
+        JSON response with extracted certificate data.
+    """
+    try:
+        # Check if file is present in the request
+        if 'file' not in request.files:
+            return jsonify({
+                "error": "No file provided. Please upload a certificate image or PDF."
+            }), 400
+        
+        file = request.files['file']
+        
+        # Check if file is actually selected
+        if file.filename == '':
+            return jsonify({
+                "error": "No file selected. Please choose a certificate file."
+            }), 400
+        
+        # Validate file extension
+        if not allowed_file(file.filename):
+            return jsonify({
+                "error": f"File type not allowed. Allowed types: {', '.join(ALLOWED_EXTENSIONS)}"
+            }), 400
+        
+        # Sanitize filename for security
+        filename = secure_filename(file.filename)
+        
+        # Create uploads directory if it doesn't exist
+        upload_dir = os.path.join(os.getcwd(), 'uploads')
+        if not os.path.exists(upload_dir):
+            os.makedirs(upload_dir)
+        
+        # Generate unique filename to prevent conflicts
+        import uuid
+        unique_filename = f"{uuid.uuid4()}_{filename}"
+        file_path = os.path.join(upload_dir, unique_filename)
+        
+        try:
+            # Save the uploaded file temporarily
+            file.save(file_path)
+            
+            # Import OCR service for certificate processing
+            from services.ocr_service import parse_details_from_image, validate_extracted_data
+            
+            # Extract details from the uploaded certificate
+            extracted_details = parse_details_from_image(file_path)
+            
+            # Validate extracted data
+            validated_details = validate_extracted_data(extracted_details)
+            
+            # Check if extraction was successful
+            if validated_details.get('error'):
+                return jsonify({
+                    "error": f"Certificate processing failed: {validated_details['error']}",
+                    "extracted_data": validated_details
+                }), 400
+            
+            # Return extracted data for institution review
+            return jsonify({
+                "message": "Certificate data extracted successfully",
+                "extracted_data": {
+                    "student_name": validated_details.get('student_name'),
+                    "roll_number": validated_details.get('roll_number'),
+                    "course_name": validated_details.get('course_name'),
+                    "grade": validated_details.get('grade'),
+                    "issue_date": validated_details.get('issue_date'),
+                    "institution_name": validated_details.get('institution_name')
+                },
+                "raw_text_preview": validated_details.get('raw_text', '')[:200] + "..." if validated_details.get('raw_text') else None
+            }), 200
+            
+        except Exception as e:
+            print(f"Error processing uploaded file: {e}")
+            return jsonify({
+                "error": "Error processing uploaded file. Please ensure the file is a valid certificate image or PDF."
+            }), 500
+            
+        finally:
+            # Clean up: delete the temporary file
+            try:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+            except Exception as e:
+                print(f"Error deleting temporary file: {e}")
+                
+    except Exception as e:
+        print(f"Unexpected error during certificate extraction: {e}")
+        return jsonify({
+            "error": "An unexpected error occurred during file processing"
         }), 500
 
 
