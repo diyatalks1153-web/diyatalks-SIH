@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { registerInstitution, loginInstitution, registerVerifier, loginVerifier } from '../apiService';
-import { useAuth } from '../context/AuthContext';
+import { registerInstitution, loginInstitution, registerVerifier, loginVerifier } from '../apiService.js';
+import { useAuth } from '../context/AuthContext.jsx';
 
 const AuthForms = ({ userType }) => {
   const [activeTab, setActiveTab] = useState('login');
@@ -42,9 +42,9 @@ const AuthForms = ({ userType }) => {
   const handleGoogleLogin = () => {
     const backendBase = 'http://localhost:5001';
     if (userType === 'institution') {
-      window.location.href = `${backendBase}/api/institution/google`;
+      window.location.href = `${backendBase}/login/institution/google`;
     } else {
-      window.location.href = `${backendBase}/api/verifier/google`;
+      window.location.href = `${backendBase}/login/verifier/google`;
     }
   };
 
