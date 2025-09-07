@@ -41,7 +41,7 @@ class Config:
     JWT_EXPIRATION_HOURS = 24
     
     # CORS Settings
-    CORS_ORIGINS = ['http://localhost:3000', 'http://localhost:5173']
+    CORS_ORIGINS = ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174']
 
 
 class DevelopmentConfig(Config):

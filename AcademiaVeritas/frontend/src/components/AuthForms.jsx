@@ -30,7 +30,16 @@ const AuthForms = ({ userType }) => {
         login(response.data.token);
       }
     } catch (err) {
-      setError(err.response?.data?.error || 'An error occurred.');
+      console.error('Authentication error:', err);
+      if (err.code === 'ERR_NETWORK' || err.message.includes('Network Error')) {
+        setError('Cannot connect to server. Please ensure the backend is running on port 5001.');
+      } else if (err.response?.data?.error) {
+        setError(err.response.data.error);
+      } else if (err.response?.status) {
+        setError(`Server error (${err.response.status}): ${err.response.statusText}`);
+      } else {
+        setError(`Connection error: ${err.message || 'An unknown error occurred'}`);
+      }
     } finally {
       setIsLoading(false);
     }
